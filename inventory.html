@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>بحث المنتجات - إدارة MKYM store</title>
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+:root{--gold:#d4af62;--bg:#11110f;--panel:#1b1a17;--text:#f4efe4;--muted:#b7ad99;--line:#39352b}
+*{box-sizing:border-box}body{font-family:Tahoma,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;padding:clamp(12px,4vw,36px)}
+main{max-width:760px;margin:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:clamp(18px,4vw,30px)}
+h1{font-size:23px;margin:0 0 8px}p{color:var(--muted);line-height:1.8}
+label{display:block;margin:16px 0 6px;color:var(--muted)}input{width:100%;padding:12px;border:1px solid var(--line);border-radius:4px;background:#121210;color:var(--text);font:inherit;min-height:44px}
+input:focus{outline:2px solid var(--gold)}button,.link{display:inline-block;margin-top:12px;padding:12px 18px;border:0;border-radius:4px;background:linear-gradient(135deg,#d4af62,#a67c35);color:#1c180f;font:inherit;font-weight:bold;text-decoration:none;cursor:pointer}
+.result{margin-top:22px;border-top:1px solid var(--line)}.result h2{color:var(--gold);font-size:19px;margin:20px 0 8px}
+.result dl{display:grid;grid-template-columns:minmax(120px,1fr) 2fr;margin:0}.result dt,.result dd{padding:10px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.result dt{color:var(--muted)}.result dd{margin:0}
+.message{margin-top:14px;padding:12px;border-radius:4px;background:#381b19;color:#ffcbc7;line-height:1.6}.message.ok{background:#153221;color:#b9f4ca}
+@media(max-width:520px){.result dl{grid-template-columns:1fr}.result dt{padding-bottom:2px;border:0}.result dd{padding-top:2px}}
+</style></head><body><main><h1>البحث عن منتج</h1><p>أدخل رقم المنتج لعرض بياناته الداخلية، بما فيها التاجر وسعر الشراء وسعر البيع. هذه الصفحة تتطلب تسجيل دخول الإدارة.</p><div id="root"></div></main>
+<script defer src="db.js"></script>
+<script defer>
+const root=document.getElementById('root');
+const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+async function start(){
+ try{
+  if(sb){const {data,error}=await sb.auth.getSession();if(error)throw error;if(!data.session)return login()}
+  searchForm();
+ }catch(error){showError(error.message)}
+}
+function login(){
+ root.innerHTML=`<form onsubmit="loginSubmit(event)"><label for="email">البريد الإلكتروني</label><input id="email" type="email" autocomplete="username" required><label for="password">كلمة المرور</label><input id="password" type="password" autocomplete="current-password" required><button>دخول الإدارة</button><div id="message"></div></form>`;
+}
+async function loginSubmit(event){
+ event.preventDefault();
+ try{const {error}=await sb.auth.signInWithPassword({email:document.getElementById('email').value,password:document.getElementById('password').value});if(error)throw error;searchForm()}
+ catch(error){showError('تعذر تسجيل الدخول. تحقق من البريد وكلمة المرور.')}
+}
+function searchForm(){
+ root.innerHTML=`<form onsubmit="findProduct(event)"><label for="productId">رقم المنتج</label><input id="productId" type="number" min="1" step="1" required><button>بحث</button></form><div id="message"></div><div id="result" class="result"></div><a class="link" href="admin.html">العودة إلى الإدارة</a>`;
+}
+function showError(message){
+ const target=document.getElementById('message')||root;
+ target.className='message';target.textContent=message;
+}
+function detail(label,value){
+ return `<dt>${esc(label)}</dt><dd>${value===null||value===undefined||value===''?'—':esc(Array.isArray(value)?value.join('، '):value)}</dd>`;
+}
+async function findProduct(event){
+ event.preventDefault();const id=Number(document.getElementById('productId').value);
+ const result=document.getElementById('result');result.innerHTML='';document.getElementById('message').textContent='';
+ try{
+  const product=await DB.get('products',id,'id,store_id,category_id,merchant_id,brand_id,name,description,price,sale_price,purchase_price,sizes,colors,rating,images,out_of_stock,created_at');
+  if(!product)throw new Error('لا يوجد منتج بهذا الرقم.');
+  const [merchant,store,category,brand]=await Promise.all([
+   product.merchant_id?DB.get('merchants',product.merchant_id):null,
+   DB.get('stores',product.store_id),
+   DB.get('categories',product.category_id),
+   product.brand_id?DB.get('brands',product.brand_id):null
+  ]);
+  result.innerHTML=`<h2>${esc(product.name)} — رقم ${product.id}</h2><dl>
+   ${detail('الوصف',product.description)}${detail('التاجر / المورد',merchant?.name)}${detail('هاتف التاجر',merchant?.phone)}${detail('عنوان التاجر',merchant?.address)}
+   ${detail('نوع منتجات التاجر',merchant?.product_types)}${detail('المتجر',store?.name)}${detail('القسم',category?.name)}${detail('العلامة التجارية',brand?.name)}
+   ${detail('سعر الشراء',product.purchase_price)}${detail('سعر البيع',product.price)}${detail('سعر التخفيض',product.sale_price)}
+   ${detail('المقاسات',product.sizes)}${detail('الألوان',product.colors)}${detail('التقييم',product.rating)}${detail('الحالة',product.out_of_stock?'انتهت الكمية':'متوفر')}
+   ${detail('روابط الصور',product.images)}${detail('تاريخ الإضافة',product.created_at)}</dl>`;
+ }catch(error){showError(error.message||'تعذر البحث عن المنتج.')}
+}
+document.addEventListener('DOMContentLoaded',start);
+</script></body></html>

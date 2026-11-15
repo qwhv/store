@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>إدارة MKYM store</title>
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+:root{--gold:#d4af62;--gold-dark:#a67c35;--bg:#11110f;--panel:#1b1a17;--text:#f4efe4;--muted:#b7ad99;--line:#39352b;--red:#b42318}
+*{box-sizing:border-box}body{font-family:Tahoma,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;padding:clamp(12px,4vw,36px)}
+.box{max-width:700px;margin:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:clamp(18px,4vw,30px);box-shadow:0 16px 50px #0005}
+.admin-links{display:flex;gap:10px;margin:12px 0}.admin-links a{flex:1;padding:12px;text-align:center;border-radius:4px;background:var(--line);color:var(--text);font-weight:700}
+h1{font-size:24px;margin:0 0 8px}.sub{color:var(--muted);font-size:14px;margin:0 0 22px;line-height:1.8}
+label{display:block;margin:14px 0 6px;font-size:14px;color:var(--muted)}
+input,select,textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:4px;background:#121210;color:var(--text);font:inherit;min-height:44px}
+textarea{resize:vertical;line-height:1.7}input:focus,select:focus,textarea:focus{outline:2px solid var(--gold);outline-offset:1px}
+.step{padding:16px 0;border-top:1px solid var(--line)}.step:first-of-type{border-top:0}.step h2{font-size:16px;margin:0 0 10px;color:var(--gold)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.search-wrap{margin-bottom:10px}.help,.note{color:var(--muted);font-size:13px;line-height:1.7;margin-top:8px}.note{background:#292418;border-inline-start:3px solid var(--gold);padding:10px 12px;margin:0 0 16px}
+.check{display:flex;align-items:center;gap:10px;border:1px solid var(--line);padding:12px;margin-top:14px;border-radius:4px}.check input{width:20px;height:20px;min-height:0;accent-color:var(--red)}.check label{margin:0;color:var(--text)}
+button{width:100%;min-height:46px;margin-top:16px;padding:11px 16px;border:0;border-radius:4px;color:#1c180f;font:inherit;font-weight:700;cursor:pointer;background:linear-gradient(135deg,var(--gold),var(--gold-dark))}
+button:hover{filter:brightness(1.08)}button.danger{background:var(--red);color:#fff}button.secondary{background:var(--line);color:var(--text)}
+.msg{margin-top:12px;padding:11px;border-radius:4px;display:none;line-height:1.6}.ok{background:#153221;color:#b9f4ca;display:block}.er{background:#381b19;color:#ffcbc7;display:block}
+.actions{display:flex;gap:10px}.actions button{flex:1}.hidden{display:none!important}
+@media(max-width:520px){.row{grid-template-columns:1fr}.actions{flex-direction:column;gap:0}}
+</style></head><body><main class="box"><h1>إدارة MKYM store</h1><p class="sub">إضافة المنتجات والمتاجر وتحديثها وإدارة المخزون.</p><nav class="admin-links"><a href="inventory.html">🔎 البحث عن منتج ومعلومات التكلفة</a></nav><div id="root"></div></main>
+<script defer src="db.js"></script>
+<script defer>
+const root=document.getElementById('root');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const state={action:'',entity:'',storeId:'',categoryId:'',recordId:'',productId:'',reviewId:'',merchantId:''};
+const titles={stores:'متجر',merchants:'تاجر / مورد',brands:'علامة تجارية',categories:'نوع / قسم',products:'منتج',discounts:'تخفيض',reviews:'رأي عميل'};
+async function start(){try{if(sb){const {data,error}=await sb.auth.getSession();if(error)throw error;if(!data.session)return login()}await render()}catch(e){showError(e.message)}}
+function login(){root.innerHTML=`<section class="step"><label for="em">البريد الإلكتروني</label><input id="em" type="email" autocomplete="username"><label for="pw">كلمة المرور</label><input id="pw" type="password" autocomplete="current-password"><button onclick="doLogin()">دخول</button><div id="m" class="msg"></div></section>`}
+async function doLogin(){const {error}=await sb.auth.signInWithPassword({email:document.getElementById('em').value,password:document.getElementById('pw').value});if(error){const m=document.getElementById('m');m.className='msg er';m.textContent='تعذر تسجيل الدخول. تحقق من البريد وكلمة المرور.'}else start()}
+function picker(id,label,items,selected='',handler='chooseRecord'){
+ return `<label for="pick_${id}">${label}</label><div class="search-wrap"><input type="search" placeholder="اكتب للبحث..." aria-label="ابحث في ${esc(label)}" oninput="filterOptions('pick_${id}',this.value)"></div><select id="pick_${id}" onchange="${handler}(this.value)"><option value="">اختر ${esc(label)}</option>${items.map(x=>`<option value="${esc(x.id)}" ${String(x.id)===String(selected)?'selected':''}>${esc(x.label??x.name)}</option>`).join('')}</select>`
+}
+function filterOptions(id,query){const q=query.trim().toLocaleLowerCase();document.querySelectorAll(`#${id} option`).forEach((o,i)=>{if(i)o.hidden=!o.textContent.toLocaleLowerCase().includes(q)})}
+function setAction(value){Object.assign(state,{action:value,entity:'',storeId:'',categoryId:'',recordId:'',productId:'',reviewId:'',merchantId:''});render()}
+function setEntity(value){Object.assign(state,{entity:value,storeId:'',categoryId:'',recordId:'',productId:'',reviewId:'',merchantId:''});render()}
+function chooseStore(value){Object.assign(state,{storeId:value,categoryId:'',recordId:''});render()}
+function chooseCategory(value){state.categoryId=value;state.recordId='';render()}
+function chooseRecord(value){state.recordId=value;if(state.entity==='products'){const p=selected(productsData,value);state.storeId=p?.store_id||'';state.categoryId=p?.category_id||'';state.merchantId=p?.merchant_id||''}render()}
+function chooseProduct(value){state.productId=value;state.recordId='';state.reviewId='';render()}
+function chooseReview(value){state.reviewId=value;state.recordId=value;render()}
+function chooseTargetStore(value){state.storeId=value;state.categoryId='';render()}
+function chooseMerchant(value){state.merchantId=value;render()}
+function selected(list,id){return list.find(x=>String(x.id)===String(id))}
+function field(key,label,value='',type='text',attrs=''){if(type==='textarea')return `<label for="v_${key}">${label}</label><textarea id="v_${key}" rows="3" ${attrs}>${esc(value)}</textarea>`;return `<label for="v_${key}">${label}</label><input id="v_${key}" type="${type}" value="${esc(value??'')}" ${type==='number'?'step="any"':''} ${attrs}>`}
+function selectField(key,label,items,value='',required=false){
+ return `<label for="v_${key}">${label}</label><select id="v_${key}" ${required?'required':''}><option value="">${required?'اختر':'بدون'} ${esc(label)}</option>${items.map(item=>`<option value="${esc(item.id)}" ${String(item.id)===String(value)?'selected':''}>${esc(item.name)}</option>`).join('')}</select>`;
+}
+function categoryName(c,cats){
+ const parent=selected(cats,c.parent_id);
+ return parent?`${categoryName(parent,cats)} / ${c.name}`:c.name;
+}
+function productFields(p,cats){
+ const targetCats=cats.filter(c=>String(c.store_id)===String(state.storeId));
+ let h='';
+ if(state.action==='edit')h+=picker('targetStore','متجر المنتج',storesData,state.storeId,'chooseTargetStore');
+ const categoryOptions=targetCats.map(category=>({id:category.id,label:categoryName(category,targetCats)}));
+ if(state.action==='add'&&state.storeId)h+=picker('addCategory','النوع داخل المتجر',categoryOptions,state.categoryId,'chooseCategory');
+ if(state.action==='edit'&&state.storeId)h+=picker('targetCategory','النوع داخل المتجر',categoryOptions,state.categoryId,'chooseCategory');
+ if((state.action==='add'&&!state.categoryId)||(state.action==='edit'&&!state.categoryId))return h+`<p class="help">اختر المتجر والنوع أولاً لإظهار بيانات المنتج.</p>`;
+ h+=picker('merchant','التاجر / المورد',merchantsData,state.merchantId,'chooseMerchant');
+ if(!merchantsData.length)h+='<p class="help">أضف تاجراً أو مورداً أولاً من قائمة الإدارة، ثم اربطه بالمنتج.</p>';
+ h+=field('name','اسم المنتج',p?.name||'','text','required');h+=field('description','الوصف',p?.description||'','textarea');
+ h+=`<div class="row">${field('price','سعر البيع',p?.price??'','number','required min="0"')}${field('purchase_price','سعر الشراء (للإدارة فقط)',p?.purchase_price??'','number','min="0"')}</div>`;
+ h+=`<div class="row">${field('sale_price','سعر التخفيض (اختياري)',p?.sale_price??'','number','min="0"')}${selectField('brand_id','العلامة التجارية',brandsData,p?.brand_id??(selected(targetCats,state.categoryId)?.brand_id||''))}</div>`;
+ h+=`<div class="row">${field('rating','التقييم (0-5)',p?.rating??5,'number','min="0" max="5"')}${field('images','روابط الصور (رابط في كل سطر)',(p?.images||[]).join('\n'),'textarea')}</div>`;
+ h+=`<div class="row">${field('sizes','المقاسات (مقاس في كل سطر)',(p?.sizes||[]).join('\n'),'textarea')}${field('colors','الألوان (لون في كل سطر)',(p?.colors||[]).join('\n'),'textarea')}</div>`;
+ h+=`<div class="check"><input id="v_out_of_stock" type="checkbox" ${p?.out_of_stock?'checked':''}><label for="v_out_of_stock">انتهاء الكمية</label></div>`;
+ return h
+}
+function reviewFields(r){return field('customer_name','اسم العميل',r?.customer_name||'','text')+`<div class="row">${field('rating','التقييم (1-5)',r?.rating??5,'number','min="1" max="5"')}${field('screenshot_url','رابط صورة محادثة الواتساب (اختياري)',r?.screenshot_url||'')}</div>`+field('comment','نص الرأي',r?.comment||'','textarea')}
+let storesData=[],merchantsData=[],brandsData=[],categoriesData=[],productsData=[],reviewsData=[];
+let exchangeRateData=null;
+async function render(){
+ try{[storesData,merchantsData,brandsData,categoriesData,productsData,reviewsData,exchangeRateData]=await Promise.all([DB.list('stores'),DB.list('merchants'),DB.list('brands'),DB.list('categories'),DB.list('products'),DB.list('reviews'),DB.get('exchange_rates','sar')])}catch(e){showError(e.message);return}
+ let h=DB.demo?'<div class="note">وضع تجريبي: البيانات محفوظة في هذا المتصفح فقط. اربط Supabase في db.js للحفظ على موقعك.</div>':'';
+ h+=`<section class="step"><h2>1. اختر العملية</h2><label for="action">العملية</label><select id="action" onchange="setAction(this.value)"><option value="">اختر إضافة أو تعديل أو حذف</option><option value="add" ${state.action==='add'?'selected':''}>إضافة</option><option value="edit" ${state.action==='edit'?'selected':''}>تعديل</option><option value="delete" ${state.action==='delete'?'selected':''}>حذف</option><option value="exchange" ${state.action==='exchange'?'selected':''}>تعديل الصرف</option></select></section>`;
+ if(!state.action){root.innerHTML=h;return}
+ if(state.action==='exchange'){
+  h+=`<section class="step"><h2>2. سعر صرف العملة</h2><p class="help">أدخل المبلغ بالعملتين لحساب سعر الصرف. أسعار المنتجات تبقى بالريال اليمني وتتحول عند عرضها للعميل.</p><form id="dataForm" onsubmit="save(event)"><div class="row">${field('sar_amount','المبلغ بالريال السعودي','1','number','required min="0.000001"')}${field('yer_amount','المقابل بالريال اليمني',exchangeRateData?.sar_to_yer??'','number','required min="0.000001"')}</div><button type="submit">حفظ سعر الصرف</button></form></section><div id="m" class="msg"></div>`;
+  root.innerHTML=h;return;
+ }
+ h+=`<section class="step"><h2>2. اختر ما تريد ${state.action==='add'?'إضافته':state.action==='edit'?'تعديله':'حذفه'}</h2><label for="entity">النوع</label><select id="entity" onchange="setEntity(this.value)"><option value="">اختر النوع</option>${Object.entries(titles).map(([k,v])=>`<option value="${k}" ${state.entity===k?'selected':''}>${v}</option>`).join('')}</select></section>`;
+ if(!state.entity){root.innerHTML=h;return}
+ const editing=state.action==='edit',deleting=state.action==='delete',adding=state.action==='add';
+ const allProducts=productsData.map(p=>({id:p.id,label:`#${p.id} ${p.name} - ${(storesData.find(s=>s.id==p.store_id)||{}).name||''} - ${(merchantsData.find(m=>m.id==p.merchant_id)||{}).name||'دون تاجر'}`}));
+ const stockProducts=productsData.filter(p=>p.sale_price!=null).map(p=>({id:p.id,label:`#${p.id} ${p.name}`}));
+ const prods=state.entity==='discounts'&&editing||state.entity==='discounts'&&deleting?stockProducts:allProducts;
+ let body='',record=null;
+ if(state.entity==='stores'){
+  if(editing||deleting){body=picker('record','المتجر',storesData,state.recordId,'chooseRecord');record=selected(storesData,state.recordId)}
+  if(adding||editing&&record)body+=field('name','اسم المتجر',record?.name||'','text','required')+field('description','الوصف',record?.description||'','textarea')+`<div class="row">${field('owner_name','اسم صاحب المتجر',record?.owner_name||'','text','required')}${field('whatsapp_phone','رقم واتساب صاحب المتجر (مع مفتاح الدولة)',record?.whatsapp_phone||'','tel','required inputmode="tel" maxlength="20"')}</div><p class="help">أدخل الرقم مع مفتاح الدولة، مثل 9677XXXXXXX. سيُستخدم لاستقبال طلبات هذا المتجر فقط.</p>`+`<div class="row">${field('icon','أيقونة المتجر (إيموجي)',record?.icon||'🛍️')}${field('cover_url','رابط صورة الغلاف',record?.cover_url||'')}</div>`;
+ }
+ if(state.entity==='merchants'){
+  if(editing||deleting){body=picker('record','التاجر / المورد',merchantsData,state.recordId,'chooseRecord');record=selected(merchantsData,state.recordId)}
+  if(adding||editing&&record)body+=field('name','اسم التاجر / المورد',record?.name||'','text','required')+field('product_types','أنواع المنتجات',record?.product_types||'','textarea')+`<div class="row">${field('phone','رقم الهاتف',record?.phone||'','tel','inputmode="tel"')}${field('address','العنوان',record?.address||'')}</div>`;
+ }
+ if(state.entity==='brands'){
+  if(editing||deleting){body=picker('record','العلامة التجارية',brandsData,state.recordId,'chooseRecord');record=selected(brandsData,state.recordId)}
+  if(adding||editing&&record)body=body+field('name','اسم العلامة التجارية',record?.name||'','text','required')+field('description','الوصف',record?.description||'','textarea');
+ }
+ if(state.entity==='categories'){
+  body=picker('store','المتجر',storesData,state.storeId,'chooseStore');
+  if(state.storeId){const cats=categoriesData.filter(c=>String(c.store_id)===String(state.storeId));if(editing||deleting){body+=picker('record','القسم',cats.map(c=>({id:c.id,label:categoryName(c,cats)})),state.recordId,'chooseRecord');record=selected(cats,state.recordId)}
+   if(adding||editing&&record){
+    const excluded=record?[record.id,...categoryDescendants(cats,record.id)].map(String):[];
+    const parents=cats.filter(c=>!excluded.includes(String(c.id))).map(c=>({id:c.id,name:categoryName(c,cats)}));
+    body+=field('name','اسم القسم',record?.name||'','text','required')+selectField('parent_id','القسم الأب',parents,record?.parent_id||'')+selectField('brand_id','العلامة التجارية للقسم',brandsData,record?.brand_id||'');
+   }
+  }
+ }
+ if(state.entity==='products'){
+  if(adding){body=picker('store','المتجر',storesData,state.storeId,'chooseStore');if(state.storeId)body+=productFields(null,categoriesData)}
+  else{body=picker('record','المنتج',allProducts,state.recordId,'chooseRecord');record=selected(productsData,state.recordId);if(record&&editing)body+=productFields(record,categoriesData)}
+ }
+ if(state.entity==='discounts'){
+  body=picker('product','المنتج',prods,state.productId,'chooseProduct');const p=selected(productsData,state.productId);if(p&&(adding||editing))body+=field('sale_price','سعر التخفيض',p.sale_price??'','number','required min="0"');record=p
+ }
+ if(state.entity==='reviews'){
+  body=picker('product','المنتج',allProducts,state.productId,'chooseProduct');const product=selected(productsData,state.productId);
+  if(product){const rs=reviewsData.filter(r=>String(r.product_id)===String(product.id));if(editing||deleting){body+=picker('review','الرأي',rs.map(r=>({id:r.id,label:`#${r.id} ${r.customer_name||'عميل'} - ${r.comment||''}`})),state.reviewId,'chooseReview');record=selected(rs,state.reviewId)}if(adding||editing&&record)body+=reviewFields(record)}
+ }
+ h+=`<section class="step"><h2>3. ${deleting?'حدد العنصر المطلوب حذفه':editing?'حدد العنصر ثم عدّل بياناته':'أدخل البيانات'}</h2>`;
+ if(state.entity==='products'&&editing&&record&&!state.categoryId)h+='<p class="help">اختر المتجر والنوع المستهدفين قبل حفظ التعديلات.</p>';
+ if(deleting&&record)h+=`<p class="help">${state.entity==='stores'||state.entity==='categories'?'لا يمكن حذف متجر أو نوع يحتوي على منتجات. انقل المنتجات أو احذفها أولاً.':'تأكد من العنصر قبل الحذف.'}</p>`;
+ const hasForm=(adding&&['stores','merchants','brands'].includes(state.entity)||adding&&state.entity==='categories'&&state.storeId||adding&&state.entity==='products'&&state.categoryId||adding&&state.entity==='discounts'&&state.productId||adding&&state.entity==='reviews'&&state.productId)||(editing&&record&&(state.entity!=='products'||state.categoryId));
+ if(hasForm)h+=`<form id="dataForm" onsubmit="save(event)">${body}<button type="submit">${adding?'حفظ الإضافة':'حفظ التعديلات'}</button></form>`;else h+=body;
+ if(deleting&&record)h+=`<button class="danger" type="button" onclick="removeRecord()">حذف ${esc(titles[state.entity])}</button>`;
+ h+='</section><div id="m" class="msg"></div>';
+ root.innerHTML=h;
+}
+function showError(message){root.innerHTML=`<div class="msg er">تعذر تحميل البيانات: ${esc(message)}</div>`}
+function message(text,error=false){const m=document.getElementById('m');if(m){m.className=`msg ${error?'er':'ok'}`;m.textContent=text}}
+function values(keys){const row={};keys.forEach(k=>{const el=document.getElementById('v_'+k);if(!el)return;let v=el.value.trim();if(el.type==='number')v=v===''?null:Number(v);if(['images','sizes','colors'].includes(k))v=v.split('\n').map(x=>x.trim()).filter(Boolean);if(v==='')v=null;row[k]=v});return row}
+async function save(event){
+ event.preventDefault();try{
+  if(state.action==='exchange'){
+   const sarAmount=Number(document.getElementById('v_sar_amount').value);
+   const yerAmount=Number(document.getElementById('v_yer_amount').value);
+   if(!Number.isFinite(sarAmount)||sarAmount<=0||!Number.isFinite(yerAmount)||yerAmount<=0)throw new Error('أدخل مبلغاً أكبر من صفر في حقلي العملتين.');
+   const row={id:'sar',sar_to_yer:yerAmount/sarAmount};
+   if(exchangeRateData)await DB.update('exchange_rates','sar',row);else await DB.insert('exchange_rates',row);
+   message('تم حفظ سعر الصرف بنجاح');
+   setTimeout(()=>{state.action='';render()},900);
+   return;
+  }
+  if(state.entity==='discounts'){await DB.update('products',state.productId,{sale_price:Number(document.getElementById('v_sale_price').value)});message('تم حفظ التخفيض بنجاح');setTimeout(()=>{Object.assign(state,{action:'',entity:'',recordId:'',productId:''});render()},900);return}
+  let row={};
+  if(state.entity==='stores'){row=values(['name','description','owner_name','whatsapp_phone','icon','cover_url']);row.whatsapp_phone=(row.whatsapp_phone||'').replace(/\D/g,'');if(row.whatsapp_phone.length<8||row.whatsapp_phone.length>15)throw new Error('أدخل رقم واتساب دولياً من 8 إلى 15 رقماً.')}
+  if(state.entity==='merchants')row=values(['name','product_types','phone','address']);
+  if(state.entity==='brands')row=values(['name','description']);
+  if(state.entity==='categories'){row=values(['name','parent_id','brand_id']);row.store_id=Number(state.storeId);row.parent_id=row.parent_id?Number(row.parent_id):null;row.brand_id=row.brand_id?Number(row.brand_id):null}
+  if(state.entity==='products'){
+   if(!state.merchantId)throw new Error('اختر التاجر / المورد المرتبط بالمنتج.');
+   row=values(['name','description','price','purchase_price','sale_price','rating','images','sizes','colors','brand_id']);
+   row.store_id=Number(state.storeId);row.category_id=Number(state.categoryId);row.merchant_id=Number(state.merchantId);
+   row.brand_id=row.brand_id?Number(row.brand_id):(selected(categoriesData,state.categoryId)?.brand_id||null);
+   row.out_of_stock=document.getElementById('v_out_of_stock').checked
+  }
+  if(state.entity==='reviews'){row=values(['customer_name','rating','screenshot_url','comment']);row.product_id=Number(state.productId);if(state.action==='add')row.source='whatsapp'}
+  if(state.action==='add')await DB.insert(state.entity,row);else await DB.update(state.entity,state.recordId,row);
+  message(state.action==='add'?'تمت الإضافة بنجاح':'تم حفظ التعديلات بنجاح');setTimeout(()=>{Object.assign(state,{action:'',entity:'',recordId:'',productId:'',reviewId:'',storeId:'',categoryId:''});render()},900)
+ }catch(e){message(e.message||'تعذر الحفظ',true)}
+}
+async function removeRecord(){
+ const id=state.entity==='reviews'?state.reviewId:state.entity==='discounts'?state.productId:state.recordId;
+ if(!id)return;
+ if(!confirm(`هل تريد حذف ${titles[state.entity]}؟ لا يمكن التراجع عن هذا الإجراء.`))return;
+ try{if(state.entity==='discounts')await DB.update('products',id,{sale_price:null});else await DB.delete(state.entity,id);message('تم الحذف بنجاح');setTimeout(()=>{Object.assign(state,{action:'',entity:'',recordId:'',productId:'',reviewId:'',storeId:'',categoryId:''});render()},900)}catch(e){message(e.message||'تعذر الحذف',true)}
+}
+document.addEventListener('DOMContentLoaded',start);
+</script></body></html>
