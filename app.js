@@ -97,7 +97,7 @@ function showStoreContact(store){
  if(!store){box.hidden=true;box.innerHTML='';return}
  const href=storeWhatsApp(store,`مرحباً، أتواصل مع صاحب ${store.name}.`);
  box.hidden=false;
- box.innerHTML=`${href?`<a class="store-wa" href="${href}" target="_blank" rel="noopener noreferrer" aria-label="تواصل عبر واتساب مع ${esc(store.owner_name||store.name)}" title="واتساب صاحب المتجر"><img src="Whatsapp.ico" alt=""></a>`:'<span class="store-wa unavailable" title="رقم واتساب غير مضاف" aria-hidden="true"><img src="Whatsapp.ico" alt=""></span>'}<span class="store-owner">${esc(store.owner_name||'لم يحدد المالك')}</span>`;
+ box.innerHTML=href?`<a class="store-wa" href="${href}" target="_blank" rel="noopener noreferrer" aria-label="تواصل عبر واتساب مع ${esc(store.owner_name||store.name)}" title="واتساب صاحب المتجر"><img src="Whatsapp.ico" alt=""></a>`:'<span class="store-wa unavailable" title="رقم واتساب غير مضاف" aria-hidden="true"><img src="Whatsapp.ico" alt=""></span>';
 }
 
 function card(p,i=0){
@@ -115,12 +115,15 @@ function storeCard(store){
 }
 let homepageStores=[],homepageQuery='';
 let activeStoreId='',activeStoreProducts=[],activeProductQuery='';
-let activeStoreCategories=[];
+let activeStoreCategories=[],activeStoreBrands=[],activeStoreBrandId='';
 const categoryDescendants=(categories,id)=>categories.filter(category=>String(category.parent_id)===String(id))
  .flatMap(category=>[category.id,...categoryDescendants(categories,category.id)]);
 function categoryButtons(categories,parentId=null,depth=0,selectedId=''){
  return categories.filter(category=>parentId===null?!category.parent_id:String(category.parent_id)===String(parentId))
   .map(category=>`<button class="chip ${String(selectedId)===String(category.id)?'on':''}" style="margin-inline-start:${depth*14}px" onclick="storePage('${activeStoreId}',${category.id})">${esc(category.name)}</button>${categoryButtons(categories,category.id,depth+1,selectedId)}`).join('');
+}
+function brandButtons(brands,selectedId=''){
+ return brands.map(brand=>`<button class="chip ${String(selectedId)===String(brand.id)?'on':''}" onclick="storePage('${activeStoreId}','','${brand.id}')">${esc(brand.name)}</button>`).join('');
 }
 function renderHomepageStores(){
  const query=normalizeSearch(homepageQuery);
@@ -159,22 +162,33 @@ async function landing(){
  <div class="wrap"><div id="storeList" class="stores"></div></div>`;
  renderHomepageStores();
 }
-async function storePage(id,cat){
- const [s,cats,all]=await Promise.all([
+async function storePage(id,cat='',brandId=''){
+ const [s,cats,all,brands]=await Promise.all([
   DB.get('stores',id,'id,name,description,icon,owner_name,whatsapp_phone'),
   DB.list('categories',{store_id:id},undefined,'id,store_id,parent_id,name,brand_id'),
-  DB.list('products',{store_id:id},true,'id,store_id,category_id,name,description,price,sale_price,rating,images,out_of_stock,brand_id,sizes,colors')
+  DB.list('products',{store_id:id},true,'id,store_id,category_id,name,description,price,sale_price,rating,images,out_of_stock,brand_id,sizes,colors'),
+  DB.list('brands',{},undefined,'id,name')
  ]);
  if(!s)throw new Error('المتجر المطلوب غير موجود.');
  if(String(activeStoreId)!==String(id)){activeStoreId=id;activeProductQuery=''}
  showStoreContact(s);
  activeStoreCategories=cats;
+ const categoryBrands=new Map(cats.map(category=>[String(category.id),category.brand_id]));
+ const productBrandId=product=>product.brand_id??categoryBrands.get(String(product.category_id));
+ const storeBrandIds=new Set(all.map(productBrandId).filter(id=>id!==null&&id!==undefined).map(String));
+ activeStoreBrands=brands.filter(brand=>storeBrandIds.has(String(brand.id)));
+ activeStoreBrandId=brandId||'';
  const categoryIds=cat?[Number(cat),...categoryDescendants(cats,cat)]:null;
- activeStoreProducts=categoryIds?all.filter(p=>categoryIds.includes(Number(p.category_id))):all;
+ activeStoreProducts=activeStoreBrandId
+  ?all.filter(product=>String(productBrandId(product))===String(activeStoreBrandId))
+  :categoryIds?all.filter(product=>categoryIds.includes(Number(product.category_id))):all;
  app.innerHTML=`<div class="hero" style="padding:36px 16px"><div class="logo" style="font-size:32px">${esc(s.icon)} ${esc(s.name)}</div>${s.owner_name?`<p class="store-owner-header">بإدارة ${esc(s.owner_name)}</p>`:''}<p>${esc(s.description)}</p><input class="search-field" type="search" placeholder="ابحث عن منتج في هذا المتجر..." aria-label="ابحث عن منتج في ${esc(s.name)}" oninput="searchProducts(this.value)" value="${esc(activeProductQuery)}"></div>
  <div class="wrap"><a class="back" href="#/">→ الرئيسية</a>
- <div class="chips"><button class="chip ${!cat?'on':''}" onclick="storePage(${id},'')">الكل</button>
+ <h2>الأقسام</h2>
+ <div class="chips"><button class="chip ${!cat&&!activeStoreBrandId?'on':''}" onclick="storePage(${id},'')">الكل</button>
  ${categoryButtons(cats,null,0,cat||'')}</div>
+ <h2>البرندات</h2>
+ <div class="chips">${activeStoreBrands.length?brandButtons(activeStoreBrands,activeStoreBrandId):'<p class="search-empty">لا توجد برندات لهذا المتجر.</p>'}</div>
  <div id="storeProducts"></div></div>`;
  renderStoreProducts();
 }
