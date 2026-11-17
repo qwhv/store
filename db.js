@@ -1,6 +1,6 @@
 // ===== الإعدادات =====
-const SUPABASE_URL = 'https://vuqjkoieepmikkrcndhj.supabase.co';   // https://xxxx.supabase.co
-const SUPABASE_KEY = 'sb_publishable_59pBHWAkmssTMB8ijc6Mcg_D-d6bHKB';   // anon public key
+const SUPABASE_URL = 'https://demroiolrixlmnvprcyd.supabase.co';   // https://xxxx.supabase.co
+const SUPABASE_KEY = 'sb_publishable_dCIzNHnUwR0r4ahbmrJTLw_QBlR5Qp7';   // anon public key
 const WA = '967776676326';
 
 const sb = (SUPABASE_URL && window.supabase) ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
