@@ -16,7 +16,10 @@ const money=n=>{
  return amount.toLocaleString('ar-EG',currency==='SAR'?{minimumFractionDigits:2,maximumFractionDigits:2}:undefined)+' '+currencyName();
 };
 async function loadExchangeRate(){
- const setting=await DB.get('exchange_rates','sar');
+ let setting=null;
+ try{setting=await DB.get('exchange_rates','sar')}catch(error){
+  if(error?.code==='PGRST205')throw new Error('جدول سعر الصرف غير موجود في قاعدة البيانات.');
+ }
  sarToYerRate=Number(setting?.sar_to_yer)||null;
  if(!(sarToYerRate>0)&&currency==='SAR'){
   currency='YER';
@@ -60,7 +63,7 @@ const storeWhatsApp=(store,text='')=>{
  return phone.length>=8&&phone.length<=15?`https://wa.me/${phone}${text?`?text=${encodeURIComponent(text)}`:''}`:'';
 };
 const inquiry=(p,store)=>storeWhatsApp(store,`مرحباً، أستفسر عن توفر المنتج: ${p.name} (رقم ${p.id})`);
-const stars=r=>{r=Math.round(r||0);return '★'.repeat(r)+'☆'.repeat(5-r)};
+const stars=r=>{r=Math.max(0,Math.min(5,Math.round(Number(r)||0)));return '★'.repeat(r)+'☆'.repeat(5-r)};
 const img=p=>esc((p.images&&p.images[0])||'');
 const normalizeSearch=value=>String(value||'').trim().toLocaleLowerCase();
 let cart=JSON.parse(localStorage.getItem('mkym_cart')||'[]');
@@ -166,7 +169,7 @@ async function storePage(id,cat='',brandId=''){
  const [s,cats,all,brands]=await Promise.all([
   DB.get('stores',id,'id,name,description,icon,owner_name,whatsapp_phone'),
   DB.list('categories',{store_id:id},undefined,'id,store_id,parent_id,name,brand_id'),
-  DB.list('products',{store_id:id},true,'id,store_id,category_id,name,description,price,sale_price,rating,images,out_of_stock,brand_id,sizes,colors'),
+  DB.list('products',{store_id:id},true,'id,store_id,category_id,name,description,price,sale_price,rating,images,out_of_stock,brand_id,sizes,colors,created_at'),
   DB.list('brands',{},undefined,'id,name')
  ]);
  if(!s)throw new Error('المتجر المطلوب غير موجود.');

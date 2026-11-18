@@ -4,6 +4,15 @@ const SUPABASE_KEY = 'sb_publishable_dCIzNHnUwR0r4ahbmrJTLw_QBlR5Qp7';   // anon
 const WA = '967776676326';
 
 const sb = (SUPABASE_URL && window.supabase) ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+function toPublicDbError(table, error) {
+  if (error?.code === '42501') {
+    return new Error(`تعذر قراءة ${table === 'products' ? 'المنتجات' : 'بيانات الموقع'} بسبب صلاحيات قاعدة البيانات.`);
+  }
+  if (error?.code === 'PGRST205') {
+    return new Error(`جدول ${table} غير موجود في قاعدة البيانات.`);
+  }
+  return new Error(error?.message || 'تعذر الاتصال بقاعدة البيانات.');
+}
 const cache = {};
 const CACHE_TTL = 5 * 60 * 1000;
 const pic = n => `https://picsum.photos/seed/${n}/300/300`;
@@ -60,7 +69,8 @@ const DB = {
       }
       let q = sb.from(t).select(columns); for (const k in f) q = q.eq(k, f[k]);
       if (newest && !unfiltered) q = q.order('created_at', {ascending:false});
-      const {data, error} = await q; if (error) throw error;
+      const {data, error} = await q;
+      if (error) throw toPublicDbError(t, error);
       if (cacheable) cache[t] = {data, ts:Date.now()};
       return newest
         ? data.slice().sort((a,b) => String(b.created_at).localeCompare(String(a.created_at)))
@@ -72,7 +82,7 @@ const DB = {
   async get(t, id, columns = '*') {
     if (sb) {
       const {data, error} = await sb.from(t).select(columns).eq('id', id).limit(1);
-      if (error) throw error;
+      if (error) throw toPublicDbError(t, error);
       return data[0];
     }
     return (await this.list(t, {id}))[0];

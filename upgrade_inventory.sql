@@ -62,7 +62,11 @@ drop policy if exists "admin_merchants" on merchants;
 create policy "admin_merchants" on merchants for all to authenticated using (true) with check (true);
 
 -- واجهة المتجر لا تحتاج إلى سعر الشراء؛ تمنع الصلاحيات قراءته عبر API العام.
-revoke select on products from anon;
+grant usage on schema public to anon, authenticated;
+alter table products enable row level security;
+drop policy if exists "read_products" on products;
+create policy "read_products" on products for select to anon, authenticated using (true);
+revoke all on table public.products from anon;
 grant select (id,category_id,store_id,brand_id,name,description,price,sale_price,
   sizes,colors,out_of_stock,rating,images,created_at) on products to anon;
 
