@@ -59,19 +59,22 @@ const DB = {
   demo: !sb,
   async list(t, f = {}, newest, columns = '*') {
     if (sb) {
-      const unfiltered = Object.keys(f).length === 0;
-      const cacheable = unfiltered;
-      const cached = cacheable ? cache[t] : null;
+      const filterKey = JSON.stringify({
+        filters: Object.keys(f).sort().map(key => [key, f[key]]),
+        columns
+      });
+      const cached = cache[t]?.[filterKey];
       if (cached && Date.now() - cached.ts < CACHE_TTL) {
         return newest
           ? cached.data.slice().sort((a,b) => String(b.created_at).localeCompare(String(a.created_at)))
           : cached.data;
       }
       let q = sb.from(t).select(columns); for (const k in f) q = q.eq(k, f[k]);
-      if (newest && !unfiltered) q = q.order('created_at', {ascending:false});
+      if (newest && Object.keys(f).length) q = q.order('created_at', {ascending:false});
       const {data, error} = await q;
       if (error) throw toPublicDbError(t, error);
-      if (cacheable) cache[t] = {data, ts:Date.now()};
+      if (!cache[t]) cache[t] = {};
+      cache[t][filterKey] = {data, ts:Date.now()};
       return newest
         ? data.slice().sort((a,b) => String(b.created_at).localeCompare(String(a.created_at)))
         : data;

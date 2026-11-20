@@ -10,17 +10,26 @@ function toggleTheme(){setTheme(document.documentElement.dataset.theme==='dark'?
 setTheme(localStorage.getItem('mkym_theme')||'dark');
 let sarToYerRate=null;
 let currency=localStorage.getItem('mkym_currency')==='SAR'?'SAR':'YER';
+const EXCHANGE_RATE_CACHE_KEY='mkym_exchange_rate';
+const EXCHANGE_RATE_CACHE_TTL=60*60*1000;
+let hasFreshExchangeRateCache=false;
+try{
+ const cached=JSON.parse(localStorage.getItem(EXCHANGE_RATE_CACHE_KEY)||'null');
+ const cacheAge=Date.now()-Number(cached?.cachedAt);
+ if(cached&&cacheAge>=0&&cacheAge<EXCHANGE_RATE_CACHE_TTL&&Number(cached.rate)>0){
+  sarToYerRate=Number(cached.rate);
+  hasFreshExchangeRateCache=true;
+ }
+}catch(error){
+ console.warn('تعذر قراءة سعر الصرف المحفوظ.',error);
+ localStorage.removeItem(EXCHANGE_RATE_CACHE_KEY);
+}
 const currencyName=()=>currency==='SAR'?'ر.س':'ر.ي';
 const money=n=>{
  const amount=currency==='SAR'&&sarToYerRate>0?Number(n)/sarToYerRate:Number(n);
  return amount.toLocaleString('ar-EG',currency==='SAR'?{minimumFractionDigits:2,maximumFractionDigits:2}:undefined)+' '+currencyName();
 };
-async function loadExchangeRate(){
- let setting=null;
- try{setting=await DB.get('exchange_rates','sar')}catch(error){
-  if(error?.code==='PGRST205')throw new Error('جدول سعر الصرف غير موجود في قاعدة البيانات.');
- }
- sarToYerRate=Number(setting?.sar_to_yer)||null;
+function updateExchangeRateUI(){
  if(!(sarToYerRate>0)&&currency==='SAR'){
   currency='YER';
   localStorage.setItem('mkym_currency',currency);
@@ -32,6 +41,26 @@ async function loadExchangeRate(){
   ?`سعر الصرف: 1 ر.س = ${moneyInYER(sarToYerRate)}`
   :'لم يحدد سعر الصرف السعودي بعد.';
  refreshPrices();
+}
+async function loadExchangeRate(){
+ if(hasFreshExchangeRateCache){
+  updateExchangeRateUI();
+  return;
+ }
+ let setting=null;
+ try{setting=await DB.get('exchange_rates','sar')}catch(error){
+  if(error?.code==='PGRST205')throw new Error('جدول سعر الصرف غير موجود في قاعدة البيانات.');
+  throw error;
+ }
+ sarToYerRate=Number(setting?.sar_to_yer)||null;
+ if(sarToYerRate>0){
+  localStorage.setItem(EXCHANGE_RATE_CACHE_KEY,JSON.stringify({rate:sarToYerRate,cachedAt:Date.now()}));
+  hasFreshExchangeRateCache=true;
+ }else{
+  localStorage.removeItem(EXCHANGE_RATE_CACHE_KEY);
+  hasFreshExchangeRateCache=false;
+ }
+ updateExchangeRateUI();
 }
 const moneyInYER=n=>Number(n).toLocaleString('ar-EG')+' ر.ي';
 function refreshPrices(){
@@ -145,7 +174,7 @@ async function route(){
  window.scrollTo(0,0);
  const [,pg,id]=location.hash.split('/');
  app.innerHTML='<div class="wrap">جارٍ التحميل...</div>';
- try{await loadExchangeRate();if(pg==='store')await storePage(id); else if(pg==='product')await productPage(id); else await landing();}
+ try{if(pg==='store')await storePage(id); else if(pg==='product')await productPage(id); else await landing();}
  catch(e){app.innerHTML=`<div class="wrap">حدث خطأ: ${esc(e.message)}</div>`}
 }
 async function landing(){
@@ -265,4 +294,5 @@ function checkout(storeId){
 }
 window.addEventListener('hashchange',route);
 cartReady.then(drawCart).catch(error=>{document.getElementById('drawer').innerHTML=`<p class="cart-warning">تعذر تحميل بيانات السلة: ${esc(error.message)}</p>`});
+loadExchangeRate().catch(error=>console.error('تعذر تحميل سعر الصرف.',error));
 route();
