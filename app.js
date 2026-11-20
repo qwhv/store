@@ -95,14 +95,6 @@ async function hydrateCart(){
  localStorage.setItem('mkym_cart',JSON.stringify(cart));
 }
 const cartReady=hydrateCart();
-function showStoreContact(store){
- const box=document.getElementById('storeContact');
- if(!store){box.hidden=true;box.innerHTML='';return}
- const href=storeWhatsApp(store,`مرحباً، أتواصل مع صاحب ${store.name}.`);
- box.hidden=false;
- box.innerHTML=href?`<a class="store-wa" href="${href}" target="_blank" rel="noopener noreferrer" aria-label="تواصل عبر واتساب مع ${esc(store.owner_name||store.name)}" title="واتساب صاحب المتجر"><img src="Whatsapp.ico" alt=""></a>`:'<span class="store-wa unavailable" title="رقم واتساب غير مضاف" aria-hidden="true"><img src="Whatsapp.ico" alt=""></span>';
-}
-
 function card(p,i=0){
  const off=p.sale_price?Math.round(100-p.sale_price/p.price*100):0;
  return `<a class="card" style="animation-delay:${i*60}ms" href="#/product/${p.id}">
@@ -151,7 +143,6 @@ function renderStoreProducts(){
 function searchProducts(value){activeProductQuery=value;renderStoreProducts()}
 async function route(){
  window.scrollTo(0,0);
- showStoreContact(null);
  const [,pg,id]=location.hash.split('/');
  app.innerHTML='<div class="wrap">جارٍ التحميل...</div>';
  try{await loadExchangeRate();if(pg==='store')await storePage(id); else if(pg==='product')await productPage(id); else await landing();}
@@ -174,7 +165,6 @@ async function storePage(id,cat='',brandId=''){
  ]);
  if(!s)throw new Error('المتجر المطلوب غير موجود.');
  if(String(activeStoreId)!==String(id)){activeStoreId=id;activeProductQuery=''}
- showStoreContact(s);
  activeStoreCategories=cats;
  const categoryBrands=new Map(cats.map(category=>[String(category.id),category.brand_id]));
  const productBrandId=product=>product.brand_id??categoryBrands.get(String(product.category_id));
@@ -208,7 +198,6 @@ async function productPage(id){
   DB.list('brands',{},undefined,'id,name')
  ]);
  if(!st)throw new Error('متجر المنتج المطلوب غير موجود.');
- showStoreContact(st);
  cur={imgs:p.images&&p.images.length?p.images:[''],i:0};
  const brand=brands.find(item=>String(item.id)===String(p.brand_id));
  const variants=(key,label)=>p[key]?.length?`<label class="variant-label" for="variant_${key}">${label}</label><select class="variant-select" id="variant_${key}"><option value="">اختر ${label}</option>${p[key].map(value=>`<option value="${esc(value)}">${esc(value)}</option>`).join('')}</select>`:'';
