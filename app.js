@@ -1,5 +1,16 @@
 const app=document.getElementById('app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let productBrandReturnView=null;
+function goBack(fallback){
+ if(window.history.length>1){window.history.back();return}
+ location.hash=fallback;
+}
+function openProductBrand(storeId,brandId,productId){
+ productBrandReturnView=String(activeStoreId)===String(storeId)?{
+  storeId:activeStoreId,filterType:activeStoreFilterType,categoryId:activeStoreCategoryId,brandId:activeStoreBrandId
+ }:null;
+ location.hash=`#/store/${Number(storeId)}/brand/${Number(brandId)}/${Number(productId)}`;
+}
 function setTheme(theme){
  document.documentElement.dataset.theme=theme;
  localStorage.setItem('mkym_theme',theme);
@@ -82,8 +93,16 @@ function toggleSettingsPanel(force){
  document.getElementById('settingsBackdrop').hidden=!open;
  document.getElementById('settingsBtn').setAttribute('aria-expanded',String(open));
 }
+function toggleStoreFilterPanel(force){
+ const panel=document.getElementById('storeFilterPanel');
+ const open=force??!panel.classList.contains('open');
+ panel.classList.toggle('open',open);
+ panel.setAttribute('aria-hidden',String(!open));
+ document.getElementById('storeFilterBackdrop').hidden=!open;
+ document.getElementById('storeFilterBtn').setAttribute('aria-expanded',String(open));
+}
 document.addEventListener('keydown',event=>{
- if(event.key==='Escape')toggleSettingsPanel(false);
+ if(event.key==='Escape'){toggleSettingsPanel(false);toggleStoreFilterPanel(false)}
 });
 const eff=p=>p.sale_price||p.price;
 const phoneDigits=phone=>String(phone||'').replace(/\D/g,'');
@@ -139,15 +158,58 @@ function storeCard(store){
 }
 let homepageStores=[],homepageQuery='';
 let activeStoreId='',activeStoreProducts=[],activeProductQuery='';
-let activeStoreCategories=[],activeStoreBrands=[],activeStoreBrandId='';
+let activeStoreCategories=[],activeStoreBrands=[],activeStoreBrandId='',activeStoreFilterType='all',activeStoreCategoryId='';
+let activeStoreAllProducts=[],activeStoreProductBrandId=()=>null,activeStoreSourceProductId='';
 const categoryDescendants=(categories,id)=>categories.filter(category=>String(category.parent_id)===String(id))
  .flatMap(category=>[category.id,...categoryDescendants(categories,category.id)]);
 function categoryButtons(categories,parentId=null,depth=0,selectedId=''){
  return categories.filter(category=>parentId===null?!category.parent_id:String(category.parent_id)===String(parentId))
-  .map(category=>`<button class="chip ${String(selectedId)===String(category.id)?'on':''}" style="margin-inline-start:${depth*14}px" onclick="storePage('${activeStoreId}',${category.id})">${esc(category.name)}</button>${categoryButtons(categories,category.id,depth+1,selectedId)}`).join('');
+  .map(category=>`<button class="filter-item ${String(selectedId)===String(category.id)?'on':''}" style="padding-inline-start:${12+depth*14}px" onclick="selectStoreFilter('category',${Number(category.id)})">${esc(category.name)}</button>${categoryButtons(categories,category.id,depth+1,selectedId)}`).join('');
 }
-function brandButtons(brands,selectedId=''){
- return brands.map(brand=>`<button class="chip ${String(selectedId)===String(brand.id)?'on':''}" onclick="storePage('${activeStoreId}','','${brand.id}')">${esc(brand.name)}</button>`).join('');
+function renderStoreFilters(){
+ const content=document.getElementById('storeFilterContent');
+ if(!content)return;
+ content.innerHTML=`<button class="filter-choice ${activeStoreFilterType==='home'?'on':''}" onclick="selectStoreFilter('home')">الصفحة الرئيسية</button>
+ <button class="filter-choice ${activeStoreFilterType==='all'?'on':''}" onclick="selectStoreFilter('all')">كل المنتجات</button>
+ <details class="filter-group" ${activeStoreFilterType==='category'?'open':''}><summary>الأنواع</summary><div class="filter-items">${activeStoreCategories.length?categoryButtons(activeStoreCategories,null,0,activeStoreCategoryId):'<p class="filter-empty">لا توجد أنواع لهذا المتجر.</p>'}</div></details>
+ <details class="filter-group" ${activeStoreFilterType==='brand'?'open':''}><summary>البرندات</summary><div class="filter-items">${activeStoreBrands.length?activeStoreBrands.map(brand=>`<button class="filter-item ${activeStoreFilterType==='brand'&&String(activeStoreBrandId)===String(brand.id)?'on':''}" onclick="selectStoreFilter('brand',${Number(brand.id)})">${esc(brand.name)}</button>`).join(''):'<p class="filter-empty">لا توجد برندات لهذا المتجر.</p>'}</div></details>`;
+}
+function selectStoreFilter(type,id=''){
+ productBrandReturnView=null;
+ activeStoreSourceProductId='';
+ activeStoreFilterType=type;
+ activeStoreCategoryId=type==='category'?String(id):'';
+ activeStoreBrandId=type==='brand'?String(id):'';
+ const categoryIds=type==='category'?[Number(id),...categoryDescendants(activeStoreCategories,id)]:null;
+ activeStoreProducts=type==='category'
+  ?activeStoreAllProducts.filter(product=>categoryIds.includes(Number(product.category_id)))
+  :type==='brand'?activeStoreAllProducts.filter(product=>String(activeStoreProductBrandId(product))===String(id)):activeStoreAllProducts.slice();
+ renderStoreFilters();
+ renderStoreProducts();
+ renderStoreBack();
+ toggleStoreFilterPanel(false);
+}
+function renderStoreBack(){
+ const container=document.getElementById('storeBack');
+ if(!container)return;
+ container.innerHTML=activeStoreSourceProductId
+  ?`<button class="back-action" type="button" onclick="goBack('#/product/${Number(activeStoreSourceProductId)}')">→ العودة إلى المنتج</button>`
+  :activeStoreFilterType==='home'
+   ?'<a class="back" href="#/">→ المتاجر</a>'
+   :'<button class="back-action" type="button" onclick="selectStoreFilter(\'home\')">→ الصفحة الرئيسية</button>';
+}
+function restoreStoreView(view){
+ activeStoreId=view.storeId;
+ activeStoreFilterType=view.filterType;
+ activeStoreCategoryId=view.categoryId;
+ activeStoreBrandId=view.brandId;
+ const categoryIds=view.filterType==='category'
+  ?[Number(view.categoryId),...categoryDescendants(activeStoreCategories,view.categoryId)]:null;
+ activeStoreProducts=view.filterType==='category'
+  ?activeStoreAllProducts.filter(product=>categoryIds.includes(Number(product.category_id)))
+  :view.filterType==='brand'
+   ?activeStoreAllProducts.filter(product=>String(activeStoreProductBrandId(product))===String(view.brandId))
+   :activeStoreAllProducts.slice();
 }
 function renderHomepageStores(){
  const query=normalizeSearch(homepageQuery);
@@ -165,16 +227,37 @@ function renderStoreProducts(){
   container.innerHTML=matches.length?`<h2>نتائج البحث (${matches.length})</h2><div class="grid">${matches.map(card).join('')}</div>`:'<p class="search-empty">لا توجد منتجات تطابق بحثك.</p>';
   return;
  }
- const offers=activeStoreProducts.filter(product=>product.sale_price).slice(0,5),fresh=activeStoreProducts.slice(0,5);
- const sec=(title,products,strip=false)=>products.length?`<h2>${title}</h2><div class="${strip?'product-strip':'grid'}">${products.map(card).join('')}</div>`:'';
- container.innerHTML=`${sec('🔥 العروض والمجموعات المخفضة',offers,true)}${sec('🆕 أضيف حديثاً',fresh,true)}${sec('جميع المنتجات',activeStoreProducts)}${activeStoreProducts.length?'':'<p class="search-empty">لا توجد منتجات بعد.</p>'}`;
+ if(activeStoreFilterType==='home'){
+  const offers=activeStoreAllProducts.filter(product=>product.sale_price).slice(0,5);
+  const fresh=activeStoreAllProducts.slice(0,5);
+  const section=(title,products)=>products.length?`<h2>${title}</h2><div class="product-strip">${products.map(card).join('')}</div>`:'';
+  container.innerHTML=activeStoreAllProducts.length
+   ?`${section('🔥 العروض والترندات',offers)}${section('🆕 أضيف حديثاً',fresh)}`
+   :'<p class="search-empty">لا توجد منتجات بعد.</p>';
+  return;
+ }
+ const selectedBrand=activeStoreBrands.find(brand=>String(brand.id)===String(activeStoreBrandId));
+ const title=activeStoreFilterType==='category'?'منتجات النوع المحدد':activeStoreFilterType==='brand'?`منتجات ${selectedBrand?.name||'البرند المحدد'}`:'جميع المنتجات';
+ container.innerHTML=activeStoreProducts.length?`<h2>${title}</h2><div class="grid">${activeStoreProducts.map(card).join('')}</div>`:'<p class="search-empty">لا توجد منتجات في هذا الاختيار.</p>';
 }
 function searchProducts(value){activeProductQuery=value;renderStoreProducts()}
 async function route(){
  window.scrollTo(0,0);
- const [,pg,id]=location.hash.split('/');
+ const [,pg,id,subpage,subId,sourceProductId]=location.hash.split('/');
+ if(productBrandReturnView&&pg==='product')restoreStoreView(productBrandReturnView);
+ else if(productBrandReturnView&&pg==='store'&&!subpage&&String(id)===String(productBrandReturnView.storeId)){
+  restoreStoreView(productBrandReturnView);
+  productBrandReturnView=null;
+ }
+ if(pg!=='store'&&pg!=='product'){activeStoreId='';productBrandReturnView=null}
+ document.getElementById('storeFilterBtn').hidden=pg!=='store';
+ toggleStoreFilterPanel(false);
  app.innerHTML='<div class="wrap">جارٍ التحميل...</div>';
- try{if(pg==='store')await storePage(id); else if(pg==='product')await productPage(id); else await landing();}
+ try{
+  if(pg==='store')await storePage(id,subpage==='category'?subId:'',subpage==='brand'?subId:'',subpage==='brand'?sourceProductId:'');
+  else if(pg==='product')await productPage(id);
+  else await landing();
+ }
  catch(e){app.innerHTML=`<div class="wrap">حدث خطأ: ${esc(e.message)}</div>`}
 }
 async function landing(){
@@ -185,7 +268,7 @@ async function landing(){
  <div class="wrap"><div id="storeList" class="stores"></div></div>`;
  renderHomepageStores();
 }
-async function storePage(id,cat='',brandId=''){
+async function storePage(id,cat='',brandId='',sourceProductId=''){
  const [s,cats,all,brands]=await Promise.all([
   DB.get('stores',id,'id,name,description,icon,owner_name,whatsapp_phone'),
   DB.list('categories',{store_id:id},undefined,'id,store_id,parent_id,name,brand_id'),
@@ -193,54 +276,73 @@ async function storePage(id,cat='',brandId=''){
   DB.list('brands',{},undefined,'id,name')
  ]);
  if(!s)throw new Error('المتجر المطلوب غير موجود.');
- if(String(activeStoreId)!==String(id)){activeStoreId=id;activeProductQuery=''}
+ if(String(activeStoreId)!==String(id)){
+  activeStoreId=id;activeProductQuery='';activeStoreFilterType='home';activeStoreCategoryId='';activeStoreBrandId='';
+ }
  activeStoreCategories=cats;
  const categoryBrands=new Map(cats.map(category=>[String(category.id),category.brand_id]));
  const productBrandId=product=>product.brand_id??categoryBrands.get(String(product.category_id));
+ activeStoreProductBrandId=productBrandId;
  const storeBrandIds=new Set(all.map(productBrandId).filter(id=>id!==null&&id!==undefined).map(String));
  activeStoreBrands=brands.filter(brand=>storeBrandIds.has(String(brand.id)));
- activeStoreBrandId=brandId||'';
- const categoryIds=cat?[Number(cat),...categoryDescendants(cats,cat)]:null;
- activeStoreProducts=activeStoreBrandId
+ activeStoreAllProducts=all;
+ activeStoreSourceProductId=sourceProductId||'';
+ if(cat){activeStoreFilterType='category';activeStoreCategoryId=String(cat);activeStoreBrandId=''}
+ else if(brandId){activeStoreFilterType='brand';activeStoreBrandId=String(brandId);activeStoreCategoryId=''}
+ const categoryIds=activeStoreFilterType==='category'?[Number(activeStoreCategoryId),...categoryDescendants(cats,activeStoreCategoryId)]:null;
+ activeStoreProducts=activeStoreFilterType==='brand'
   ?all.filter(product=>String(productBrandId(product))===String(activeStoreBrandId))
-  :categoryIds?all.filter(product=>categoryIds.includes(Number(product.category_id))):all;
+  :categoryIds?all.filter(product=>categoryIds.includes(Number(product.category_id))):all.slice();
+ document.getElementById('storeFilterBtn').hidden=false;
  app.innerHTML=`<div class="hero" style="padding:36px 16px"><div class="logo" style="font-size:32px">${esc(s.icon)} ${esc(s.name)}</div>${s.owner_name?`<p class="store-owner-header">بإدارة ${esc(s.owner_name)}</p>`:''}<p>${esc(s.description)}</p><input class="search-field" type="search" placeholder="ابحث عن منتج في هذا المتجر..." aria-label="ابحث عن منتج في ${esc(s.name)}" oninput="searchProducts(this.value)" value="${esc(activeProductQuery)}"></div>
- <div class="wrap"><a class="back" href="#/">→ الرئيسية</a>
- <h2>الأقسام</h2>
- <div class="chips"><button class="chip ${!cat&&!activeStoreBrandId?'on':''}" onclick="storePage(${id},'')">الكل</button>
- ${categoryButtons(cats,null,0,cat||'')}</div>
- <h2>البرندات</h2>
- <div class="chips">${activeStoreBrands.length?brandButtons(activeStoreBrands,activeStoreBrandId):'<p class="search-empty">لا توجد برندات لهذا المتجر.</p>'}</div>
+ <div class="wrap"><div id="storeBack"></div>
  <div id="storeProducts"></div></div>`;
+ renderStoreBack();
+ renderStoreFilters();
  renderStoreProducts();
 }
 let cur={imgs:[],i:0};
 function show(i){cur.i=(i+cur.imgs.length)%cur.imgs.length;document.getElementById('mainImg').src=cur.imgs[cur.i];
  document.querySelectorAll('.thumbs img').forEach((t,k)=>t.classList.toggle('on',k===cur.i))}
+function productColor(value,index){
+ const raw=String(value??'').trim(),separator=raw.indexOf('|');
+ const label=(separator<0?raw:raw.slice(0,separator)).trim()||`اللون ${index+1}`;
+ const code=separator<0?raw:raw.slice(separator+1).trim();
+ return {value:raw,label,color:/^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(code)?code:'#777777'};
+}
+function getSelectedColors(){
+ return Array.from(document.querySelectorAll('input[name="productColor"]:checked')).map(input=>input.value);
+}
 async function productPage(id){
  const p=await DB.get('products',id,'id,store_id,category_id,name,description,price,sale_price,rating,images,out_of_stock,brand_id,sizes,colors');
  if(!p)throw new Error('المنتج المطلوب غير موجود.');
- const [revs,sim,st,brands]=await Promise.all([
+ const [revs,sim,st,brands,category]=await Promise.all([
   DB.list('reviews',{product_id:id},true,'id,customer_name,rating,comment,screenshot_url'),
   DB.list('products',p.brand_id?{brand_id:p.brand_id}:{category_id:p.category_id},undefined,'id,store_id,category_id,name,description,price,sale_price,rating,images,out_of_stock,brand_id,sizes,colors'),
   DB.get('stores',p.store_id,'id,name,owner_name,whatsapp_phone'),
-  DB.list('brands',{},undefined,'id,name')
+  DB.list('brands',{},undefined,'id,name'),
+  DB.get('categories',p.category_id,'id,brand_id')
  ]);
  if(!st)throw new Error('متجر المنتج المطلوب غير موجود.');
  cur={imgs:p.images&&p.images.length?p.images:[''],i:0};
- const brand=brands.find(item=>String(item.id)===String(p.brand_id));
- const variants=(key,label)=>p[key]?.length?`<label class="variant-label" for="variant_${key}">${label}</label><select class="variant-select" id="variant_${key}"><option value="">اختر ${label}</option>${p[key].map(value=>`<option value="${esc(value)}">${esc(value)}</option>`).join('')}</select>`:'';
- app.innerHTML=`<div class="wrap"><a class="back" href="#/store/${p.store_id}">→ ${esc(st.name)}</a>
+ const productBrandId=p.brand_id??category?.brand_id;
+ const brand=brands.find(item=>String(item.id)===String(productBrandId));
+ const sizes=p.sizes?.length?`<label class="variant-label" for="variant_sizes">المقاس (اختياري)</label><select class="variant-select" id="variant_sizes"><option value="">بدون تحديد مقاس</option>${p.sizes.map(value=>`<option value="${esc(value)}">${esc(value)}</option>`).join('')}</select>`:'';
+ const colors=p.colors?.length?`<span class="variant-label">اختر اللون${p.colors.length>1?' أو الألوان':''}</span><div class="product-colors">${p.colors.map((value,index)=>{
+  const color=productColor(value,index);
+  return `<label class="color-option"><input type="checkbox" name="productColor" value="${esc(color.value)}" ${index===0?'checked':''} aria-label="${esc(color.label)}"><span class="color-swatch" style="--swatch-color:${color.color}"></span><span>${esc(color.label)}</span></label>`;
+ }).join('')}</div>`:'';
+ app.innerHTML=`<div class="wrap"><button class="back-action" type="button" onclick="goBack('#/store/${p.store_id}')">→ ${esc(st.name)}</button>
  <div class="pd"><div class="car"><img id="mainImg" class="main" src="${esc(cur.imgs[0])}" loading="lazy" decoding="async" width="300" height="300">${p.out_of_stock?'<span class="stockout">انتهاء الكمية</span>':''}
  ${cur.imgs.length>1?`<button class="nv" style="right:8px" onclick="show(cur.i-1)">›</button><button class="nv" style="left:8px" onclick="show(cur.i+1)">‹</button>
  <div class="thumbs">${cur.imgs.map((u,k)=>`<img class="${k?'':'on'}" src="${esc(u)}" loading="lazy" decoding="async" width="300" height="300" onclick="show(${k})">`).join('')}</div>`:''}</div>
- <div><h1>${esc(p.name)}</h1><div class="st" style="margin:8px 0">${stars(p.rating)}</div>
- ${brand?`<p class="product-brand">العلامة التجارية: ${esc(brand.name)}</p>`:''}
+ <div><h1>${esc(p.name)}</h1>${brand?`<button class="product-brand-link" type="button" onclick="openProductBrand(${Number(p.store_id)},${Number(brand.id)},${Number(p.id)})">${esc(brand.name)}</button>`:''}<div class="st" style="margin:8px 0">${stars(p.rating)}</div>
  <div style="font-size:26px" class="pr"><span data-price="${eff(p)}">${money(eff(p))}</span>${p.sale_price?`<span class="old" data-price="${p.price}">${money(p.price)}</span>`:''}</div>
+ ${colors}
  <p style="margin:14px 0;line-height:1.9">${esc(p.description)}</p>
- ${variants('sizes','المقاس')}${variants('colors','اللون')}
+ ${sizes}
  <div style="color:var(--m);font-size:13px">رقم المنتج: ${p.id}</div>
- <div class="row">${p.out_of_stock?(inquiry(p,st)?`<a class="btn2" href="${inquiry(p,st)}" target="_blank" rel="noopener noreferrer">استفسر عن توفر المنتج عبر واتساب</a>`:'<span class="btn2">لم يضف المتجر رقم واتساب بعد</span>'):`<button class="btn" onclick="addCart(${p.id},document.getElementById('variant_sizes')?.value||'',document.getElementById('variant_colors')?.value||'')">🛒 إضافة إلى السلة</button>`}<button class="btn2" onclick="rate(${p.id})">⭐ التقييم</button></div></div></div>
+ <div class="row">${p.out_of_stock?(inquiry(p,st)?`<a class="btn2" href="${inquiry(p,st)}" target="_blank" rel="noopener noreferrer">استفسر عن توفر المنتج عبر واتساب</a>`:'<span class="btn2">لم يضف المتجر رقم واتساب بعد</span>'):`<button class="btn" onclick="addCart(${p.id},document.getElementById('variant_sizes')?.value||'',getSelectedColors())">🛒 إضافة إلى السلة</button>`}<button class="btn2" onclick="rate(${p.id})">⭐ التقييم</button></div></div></div>
  <h2>💬 آراء العملاء</h2>${revs.length?revs.map(r=>`<div class="rev"><b>${esc(r.customer_name)}</b> <span class="st">${stars(r.rating)}</span><p>${esc(r.comment)}</p>${r.screenshot_url?`<img src="${esc(r.screenshot_url)}" loading="lazy" decoding="async" width="300" height="300">`:''}</div>`).join(''):'<p>لا توجد آراء بعد.</p>'}
  ${sim.filter(x=>x.id!=p.id).length?`<h2>منتجات مشابهة${brand?` من ${esc(brand.name)}`:''}</h2><div class="grid">${sim.filter(x=>x.id!=p.id).slice(0,4).map(card).join('')}</div>`:''}</div>`;
 }
@@ -250,14 +352,18 @@ async function rate(pid){
  try{await DB.insert('reviews',{product_id:pid,customer_name:n,rating:r,comment:c,source:'site'});route()}catch(e){alert('تعذر الإرسال: '+e.message)}
 }
 /* ===== السلة ===== */
-async function addCart(id,size='',color=''){
+async function addCart(id,size='',colors=[]){
  await cartReady;
  const p=await DB.get('products',id,'id,store_id,category_id,name,description,price,sale_price,rating,images,out_of_stock,sizes,colors');if(!p)throw new Error('المنتج المطلوب غير موجود.');
  if(p.out_of_stock){alert('هذا المنتج غير متوفر حالياً.');return}
- if((p.sizes?.length&&!size)||(p.colors?.length&&!color)){alert('يرجى اختيار المقاس واللون قبل الإضافة إلى السلة.');return}
+ if(p.colors?.length&&!colors.length){alert('يرجى اختيار لون واحد على الأقل قبل الإضافة إلى السلة.');return}
  const store=await DB.get('stores',p.store_id,'id,name,owner_name,whatsapp_phone');if(!store)throw new Error('متجر المنتج المطلوب غير موجود.');
- const x=cart.find(c=>String(c.id)===String(id)&&c.size===(size||'')&&c.color===(color||''));
- x?x.qty++:cart.push({id:p.id,store_id:store.id,store_name:store.name,owner_name:store.owner_name||'',whatsapp_phone:store.whatsapp_phone||'',name:p.name,price:eff(p),qty:1,img:(p.images||[])[0]||'',size:size||'',color:color||''});
+ const selectedColors=p.colors?.length?colors:[''];
+ selectedColors.forEach(value=>{
+  const color=value?productColor(value,p.colors.indexOf(value)).label:'';
+  const x=cart.find(c=>String(c.id)===String(id)&&c.size===(size||'')&&c.color===color);
+  x?x.qty++:cart.push({id:p.id,store_id:store.id,store_name:store.name,owner_name:store.owner_name||'',whatsapp_phone:store.whatsapp_phone||'',name:p.name,price:eff(p),qty:1,img:(p.images||[])[0]||'',size:size||'',color});
+ });
  saveCart();document.getElementById('drawer').classList.add('open');
 }
 function saveCart(){localStorage.setItem('mkym_cart',JSON.stringify(cart));drawCart()}

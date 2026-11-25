@@ -6,9 +6,10 @@
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <title>MKYM store</title>
 <script defer src="vendor/supabase.min.js"></script>
-<link rel="stylesheet" href="styles.css"></head><body>
+<link rel="stylesheet" href="styles.css?v=20261125-2"></head><body>
 <button id="cartBtn" onclick="toggleCart()">🛒<span id="cnt">0</span></button>
 <button id="settingsBtn" class="settings-trigger" type="button" onclick="toggleSettingsPanel()" aria-label="فتح الإعدادات" aria-controls="settingsPanel" aria-expanded="false">☰</button>
+<button id="storeFilterBtn" class="store-filter-trigger" type="button" onclick="toggleStoreFilterPanel()" aria-label="فتح أقسام وبرندات المتجر" aria-controls="storeFilterPanel" aria-expanded="false" hidden>☷</button>
 <button id="settingsBackdrop" class="settings-backdrop" type="button" onclick="toggleSettingsPanel(false)" aria-label="إغلاق الإعدادات" hidden></button>
 <aside id="settingsPanel" class="settings-panel" aria-label="إعدادات الموقع" aria-hidden="true">
  <div class="settings-heading"><h2>الإعدادات</h2><button type="button" onclick="toggleSettingsPanel(false)" aria-label="إغلاق">✕</button></div>
@@ -20,6 +21,11 @@
   <option value="SAR">الريال السعودي (ر.س)</option>
  </select>
  <p id="exchangeRateInfo" class="settings-rate"></p>
+</aside>
+<button id="storeFilterBackdrop" class="store-filter-backdrop" type="button" onclick="toggleStoreFilterPanel(false)" aria-label="إغلاق قائمة المتجر" hidden></button>
+<aside id="storeFilterPanel" class="store-filter-panel" aria-label="تصفية منتجات المتجر" aria-hidden="true">
+ <div class="settings-heading"><h2>تصفح المتجر</h2><button type="button" onclick="toggleStoreFilterPanel(false)" aria-label="إغلاق">✕</button></div>
+ <div id="storeFilterContent"></div>
 </aside>
 <div id="drawer"></div>
 <div id="app"></div>
@@ -35,4 +41,4 @@
  <div class="copyright">© 2027 — جميع الحقوق محفوظة، من قبل <strong>محمد النود</strong></div>
 </footer>
 <script defer src="db.js?v=20261120"></script>
-<script defer src="app.js?v=20261120"></script></body></html>
+<script defer src="app.js?v=20261125-2"></script></body></html>

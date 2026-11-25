@@ -1,3 +1,3 @@
 git add .
-git commit -m "الاصدار 1.1"
+git commit -m "الاصدار 2.0"
 git push

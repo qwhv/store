@@ -65,7 +65,7 @@ function productFields(p,cats){
  h+=`<div class="row">${field('price','سعر البيع',p?.price??'','number','required min="0"')}${field('purchase_price','سعر الشراء (للإدارة فقط)',p?.purchase_price??'','number','min="0"')}</div>`;
  h+=`<div class="row">${field('sale_price','سعر التخفيض (اختياري)',p?.sale_price??'','number','min="0"')}${selectField('brand_id','العلامة التجارية',brandsData,p?.brand_id??(selected(targetCats,state.categoryId)?.brand_id||''))}</div>`;
  h+=`<div class="row">${field('rating','التقييم (0-5)',p?.rating??5,'number','min="0" max="5"')}${field('images','روابط الصور (رابط في كل سطر)',(p?.images||[]).join('\n'),'textarea')}</div>`;
- h+=`<div class="row">${field('sizes','المقاسات (مقاس في كل سطر)',(p?.sizes||[]).join('\n'),'textarea')}${field('colors','الألوان (لون في كل سطر)',(p?.colors||[]).join('\n'),'textarea')}</div>`;
+ h+=`<div class="row">${field('sizes','المقاسات (اختياري، مقاس في كل سطر)',(p?.sizes||[]).join('\n'),'textarea')}${field('colors','الألوان (اسم اللون | كود HEX في كل سطر)',(p?.colors||[]).join('\n'),'textarea')}</div><p class="help">مثال للألوان: أحمر | #ff0000. اترك المقاسات أو الألوان فارغة إذا لم تكن مطلوبة.</p>`;
  h+=`<div class="check"><input id="v_out_of_stock" type="checkbox" ${p?.out_of_stock?'checked':''}><label for="v_out_of_stock">انتهاء الكمية</label></div>`;
  return h
 }
@@ -154,6 +154,17 @@ async function save(event){
   if(state.entity==='products'){
    if(!state.merchantId)throw new Error('اختر التاجر / المورد المرتبط بالمنتج.');
    row=values(['name','description','price','purchase_price','sale_price','rating','images','sizes','colors','brand_id']);
+   row.images=row.images||[];row.sizes=row.sizes||[];row.colors=row.colors||[];
+   const previousColors=state.action==='edit'?(selected(productsData,state.recordId)?.colors||[]):[];
+   row.colors.forEach(color=>{
+    const separator=color.indexOf('|');
+    if(separator<0){
+     if(!previousColors.includes(color))throw new Error(`أدخل اللون بصيغة: اسم اللون | #HEX (${color}).`);
+     return;
+    }
+    const name=color.slice(0,separator).trim(),code=color.slice(separator+1).trim();
+    if(!name||!/^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(code))throw new Error(`رمز اللون غير صحيح في: ${color}. استخدم كود HEX مثل #ff0000.`);
+   });
    row.store_id=Number(state.storeId);row.category_id=Number(state.categoryId);row.merchant_id=Number(state.merchantId);
    row.brand_id=row.brand_id?Number(row.brand_id):(selected(categoriesData,state.categoryId)?.brand_id||null);
    row.out_of_stock=document.getElementById('v_out_of_stock').checked
