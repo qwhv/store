@@ -111,7 +111,7 @@ const storeWhatsApp=(store,text='')=>{
  return phone.length>=8&&phone.length<=15?`https://wa.me/${phone}${text?`?text=${encodeURIComponent(text)}`:''}`:'';
 };
 const inquiry=(p,store)=>storeWhatsApp(store,`مرحباً، أستفسر عن توفر المنتج: ${p.name} (رقم ${p.id})`);
-const stars=r=>{r=Math.max(0,Math.min(5,Math.round(Number(r)||0)));return '★'.repeat(r)+'☆'.repeat(5-r)};
+const stars=r=>{r=Math.max(0,Math.min(5,Math.round(Number(r)||0)));return Array.from({length:5},(_,i)=>`<span class="${i<r?'star-filled':'star-empty'}">${i<r?'★':'☆'}</span>`).join('')};
 const img=p=>esc((p.images&&p.images[0])||'');
 const normalizeSearch=value=>String(value||'').trim().toLocaleLowerCase();
 let cart=JSON.parse(localStorage.getItem('mkym_cart')||'[]');
@@ -308,10 +308,15 @@ function productColor(value,index){
  const raw=String(value??'').trim(),separator=raw.indexOf('|');
  const label=(separator<0?raw:raw.slice(0,separator)).trim()||`اللون ${index+1}`;
  const code=separator<0?raw:raw.slice(separator+1).trim();
- return {value:raw,label,color:/^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(code)?code:'#777777'};
+ const shade=label.match(/^\s*([a-z]*\d{2,4})\b/i)?.[1]||String(index+1).padStart(3,'0');
+ return {value:raw,label,shade,color:/^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(code)?code:'#777777'};
 }
 function getSelectedColors(){
  return Array.from(document.querySelectorAll('input[name="productColor"]:checked')).map(input=>input.value);
+}
+function updateSelectedColor(input){
+ const color=productColor(input.value,Array.from(document.querySelectorAll('input[name="productColor"]')).indexOf(input));
+ document.getElementById('selectedColorName').textContent=color.label;
 }
 async function productPage(id){
  const p=await DB.get('products',id,'id,store_id,category_id,name,description,price,sale_price,rating,images,out_of_stock,brand_id,sizes,colors');
@@ -328,9 +333,9 @@ async function productPage(id){
  const productBrandId=p.brand_id??category?.brand_id;
  const brand=brands.find(item=>String(item.id)===String(productBrandId));
  const sizes=p.sizes?.length?`<label class="variant-label" for="variant_sizes">المقاس (اختياري)</label><select class="variant-select" id="variant_sizes"><option value="">بدون تحديد مقاس</option>${p.sizes.map(value=>`<option value="${esc(value)}">${esc(value)}</option>`).join('')}</select>`:'';
- const colors=p.colors?.length?`<span class="variant-label">اختر اللون${p.colors.length>1?' أو الألوان':''}</span><div class="product-colors">${p.colors.map((value,index)=>{
+ const colors=p.colors?.length?`<span class="variant-label">اختر درجة اللون</span><div id="selectedColorName" class="selected-color-name" aria-live="polite">لم يتم اختيار درجة بعد</div><div class="product-colors">${p.colors.map((value,index)=>{
   const color=productColor(value,index);
-  return `<label class="color-option"><input type="checkbox" name="productColor" value="${esc(color.value)}" ${index===0?'checked':''} aria-label="${esc(color.label)}"><span class="color-swatch" style="--swatch-color:${color.color}"></span><span>${esc(color.label)}</span></label>`;
+  return `<label class="color-option" title="${esc(color.label)}"><input type="radio" name="productColor" value="${esc(color.value)}" onchange="updateSelectedColor(this)" aria-label="${esc(color.label)}"><span class="color-swatch" style="--swatch-color:${color.color}"></span><span class="color-code">${esc(color.shade)}</span></label>`;
  }).join('')}</div>`:'';
  app.innerHTML=`<div class="wrap"><button class="back-action" type="button" onclick="goBack('#/store/${p.store_id}')">→ ${esc(st.name)}</button>
  <div class="pd"><div class="car"><img id="mainImg" class="main" src="${esc(cur.imgs[0])}" loading="lazy" decoding="async" width="300" height="300">${p.out_of_stock?'<span class="stockout">انتهاء الكمية</span>':''}
@@ -342,28 +347,55 @@ async function productPage(id){
  <p style="margin:14px 0;line-height:1.9">${esc(p.description)}</p>
  ${sizes}
  <div style="color:var(--m);font-size:13px">رقم المنتج: ${p.id}</div>
- <div class="row">${p.out_of_stock?(inquiry(p,st)?`<a class="btn2" href="${inquiry(p,st)}" target="_blank" rel="noopener noreferrer">استفسر عن توفر المنتج عبر واتساب</a>`:'<span class="btn2">لم يضف المتجر رقم واتساب بعد</span>'):`<button class="btn" onclick="addCart(${p.id},document.getElementById('variant_sizes')?.value||'',getSelectedColors())">🛒 إضافة إلى السلة</button>`}<button class="btn2" onclick="rate(${p.id})">⭐ التقييم</button></div></div></div>
+ <div class="row">${p.out_of_stock?(inquiry(p,st)?`<a class="btn2" href="${inquiry(p,st)}" target="_blank" rel="noopener noreferrer">استفسر عن توفر المنتج عبر واتساب</a>`:'<span class="btn2">لم يضف المتجر رقم واتساب بعد</span>'):`<button class="btn" onclick="addCart(${p.id},document.getElementById('variant_sizes')?.value||'',getSelectedColors()[0]||'',Number(document.getElementById('productQty').value))">🛒 إضافة إلى السلة</button><label class="quantity-control">الكمية<input id="productQty" type="number" min="1" step="1" value="1" inputmode="numeric" aria-label="الكمية"></label>`}<button class="btn2" onclick="rate(${p.id})">⭐ التقييم</button></div></div></div>
  <h2>💬 آراء العملاء</h2>${revs.length?revs.map(r=>`<div class="rev"><b>${esc(r.customer_name)}</b> <span class="st">${stars(r.rating)}</span><p>${esc(r.comment)}</p>${r.screenshot_url?`<img src="${esc(r.screenshot_url)}" loading="lazy" decoding="async" width="300" height="300">`:''}</div>`).join(''):'<p>لا توجد آراء بعد.</p>'}
  ${sim.filter(x=>x.id!=p.id).length?`<h2>منتجات مشابهة${brand?` من ${esc(brand.name)}`:''}</h2><div class="grid">${sim.filter(x=>x.id!=p.id).slice(0,4).map(card).join('')}</div>`:''}</div>`;
 }
 async function rate(pid){
- const r=+prompt('قيّم المنتج من 1 إلى 5');if(!(r>=1&&r<=5))return;
- const n=prompt('اسمك:')||'زائر', c=prompt('تعليقك (اختياري):')||'';
- try{await DB.insert('reviews',{product_id:pid,customer_name:n,rating:r,comment:c,source:'site'});route()}catch(e){alert('تعذر الإرسال: '+e.message)}
+ document.getElementById('reviewModal')?.remove();
+ document.body.insertAdjacentHTML('beforeend',`<div id="reviewModal" class="review-backdrop" role="presentation" onclick="if(event.target===this)closeRateModal()"><section class="review-modal" role="dialog" aria-modal="true" aria-labelledby="reviewTitle"><div class="review-modal-heading"><h2 id="reviewTitle">قيّم المنتج</h2><button class="review-close" type="button" onclick="closeRateModal()" aria-label="إغلاق">✕</button></div><form onsubmit="submitReview(event,${Number(pid)})"><label>تقييمك</label><div class="rate-stars" id="reviewRating">${[1,2,3,4,5].map(value=>`<button type="button" class="selected" data-rating="${value}" aria-label="${value} من 5 نجوم" aria-pressed="true" onclick="setReviewRating(${value})">★</button>`).join('')}</div><label for="reviewName">الاسم</label><input id="reviewName" name="name" maxlength="100" autocomplete="name" placeholder="اسمك"><label for="reviewComment">التعليق</label><textarea id="reviewComment" name="comment" maxlength="1000" placeholder="اكتب تعليقك (اختياري)"></textarea><button class="btn review-submit" type="submit">إرسال التقييم</button></form></section></div>`);
+ document.getElementById('reviewName').focus();
+ document.addEventListener('keydown',handleRateModalKeydown);
+}
+function setReviewRating(rating){
+ document.querySelectorAll('#reviewRating button').forEach(button=>{
+  const selected=Number(button.dataset.rating)<=rating;
+  button.classList.toggle('selected',selected);
+  button.setAttribute('aria-pressed',String(selected));
+ });
+}
+function handleRateModalKeydown(event){if(event.key==='Escape')closeRateModal()}
+function closeRateModal(){
+ document.getElementById('reviewModal')?.remove();
+ document.removeEventListener('keydown',handleRateModalKeydown);
+}
+async function submitReview(event,pid){
+ event.preventDefault();
+ const form=event.currentTarget,button=form.querySelector('[type="submit"]');
+ const rating=form.querySelectorAll('#reviewRating .selected').length;
+ if(!(rating>=1&&rating<=5)){alert('اختر تقييماً من نجمة إلى خمس نجوم.');return}
+ const name=form.elements.name.value.trim()||'زائر',comment=form.elements.comment.value.trim();
+ button.disabled=true;
+ try{
+  await DB.insert('reviews',{product_id:pid,customer_name:name,rating,comment,source:'site'});
+  closeRateModal();route();
+ }catch(error){
+  button.disabled=false;
+  alert('تعذر الإرسال: '+error.message);
+ }
 }
 /* ===== السلة ===== */
-async function addCart(id,size='',colors=[]){
+async function addCart(id,size='',colorValue='',quantity=1){
  await cartReady;
  const p=await DB.get('products',id,'id,store_id,category_id,name,description,price,sale_price,rating,images,out_of_stock,sizes,colors');if(!p)throw new Error('المنتج المطلوب غير موجود.');
  if(p.out_of_stock){alert('هذا المنتج غير متوفر حالياً.');return}
- if(p.colors?.length&&!colors.length){alert('يرجى اختيار لون واحد على الأقل قبل الإضافة إلى السلة.');return}
+ if(p.colors?.length&&!colorValue){alert('اختر الدرجة (اللون) أولاً');return}
+ if(p.colors?.length&&!p.colors.includes(colorValue)){alert('الدرجة المحددة غير صالحة.');return}
+ if(!Number.isSafeInteger(quantity)||quantity<1){alert('أدخل كمية صحيحة.');return}
  const store=await DB.get('stores',p.store_id,'id,name,owner_name,whatsapp_phone');if(!store)throw new Error('متجر المنتج المطلوب غير موجود.');
- const selectedColors=p.colors?.length?colors:[''];
- selectedColors.forEach(value=>{
-  const color=value?productColor(value,p.colors.indexOf(value)).label:'';
-  const x=cart.find(c=>String(c.id)===String(id)&&c.size===(size||'')&&c.color===color);
-  x?x.qty++:cart.push({id:p.id,store_id:store.id,store_name:store.name,owner_name:store.owner_name||'',whatsapp_phone:store.whatsapp_phone||'',name:p.name,price:eff(p),qty:1,img:(p.images||[])[0]||'',size:size||'',color});
- });
+ const color=colorValue?productColor(colorValue,p.colors.indexOf(colorValue)).label:'';
+ const x=cart.find(c=>String(c.id)===String(id)&&c.size===(size||'')&&c.color===color);
+ x?x.qty+=quantity:cart.push({id:p.id,store_id:store.id,store_name:store.name,owner_name:store.owner_name||'',whatsapp_phone:store.whatsapp_phone||'',name:p.name,price:eff(p),qty:quantity,img:(p.images||[])[0]||'',size:size||'',color});
  saveCart();document.getElementById('drawer').classList.add('open');
 }
 function saveCart(){localStorage.setItem('mkym_cart',JSON.stringify(cart));drawCart()}
